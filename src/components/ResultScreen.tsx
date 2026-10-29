@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useId, useState } from "react";
 import { TARGET_BAND } from "@/lib/config";
 import { describeAngle, type ScoreResult } from "@/lib/scoring/score";
@@ -293,6 +294,11 @@ export function ResultScreen({
         <Button variant="secondary" onClick={onScanAgain} className="w-full">
           <RefreshIcon /> Scan again
         </Button>
+      )}
+      {!preview && (
+        <Link href="/debug" className="self-center text-xs underline">
+          What the sensors saw (debug view)
+        </Link>
       )}
 
       <PrivacyNote />

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { copy } from "@/lib/modeCopy";
 import { useHeadingFocus } from "./hooks";
 import { Button, Card, Disclaimer, PrivacyNote, ScreenShell } from "./ui";
@@ -50,6 +51,9 @@ export function ErrorScreen({
         <Button variant="ghost" onClick={onBack}>
           Back to start
         </Button>
+        <Link href="/debug" className="self-center text-xs underline">
+          What the sensors saw (debug view)
+        </Link>
       </div>
       <PrivacyNote />
       <Disclaimer />
