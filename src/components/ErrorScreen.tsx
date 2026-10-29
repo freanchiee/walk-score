@@ -1,0 +1,58 @@
+"use client";
+
+import { copy } from "@/lib/modeCopy";
+import { useHeadingFocus } from "./hooks";
+import { Button, Card, Disclaimer, PrivacyNote, ScreenShell } from "./ui";
+
+const TIPS = copy.errorTips;
+
+export function ErrorScreen({
+  message,
+  detail,
+  onRetry,
+  onBack,
+}: {
+  message: string;
+  detail?: string;
+  onRetry: () => void;
+  onBack: () => void;
+}) {
+  const h1 = useHeadingFocus();
+  return (
+    <ScreenShell>
+      <h1 ref={h1} tabIndex={-1} className="text-3xl font-extrabold leading-tight">
+        We couldn&apos;t get a clear read
+      </h1>
+      <p role="alert" className="text-lg text-muted">
+        {message}
+      </p>
+      {detail && (
+        <details className="text-xs text-muted">
+          <summary className="cursor-pointer">Technical details</summary>
+          <p className="mt-2 break-words font-mono">{detail}</p>
+        </details>
+      )}
+      <Card>
+        <h2 className="font-bold">For a better scan</h2>
+        <ul className="mt-3 space-y-2 text-[0.95rem]">
+          {TIPS.map((t) => (
+            <li key={t} className="flex gap-3">
+              <span aria-hidden className="mt-2 size-1.5 shrink-0 rounded-full bg-accent" />
+              <span>{t}</span>
+            </li>
+          ))}
+        </ul>
+      </Card>
+      <div className="flex flex-col gap-3">
+        <Button onClick={onRetry} className="w-full py-4 text-lg">
+          Try again
+        </Button>
+        <Button variant="ghost" onClick={onBack}>
+          Back to start
+        </Button>
+      </div>
+      <PrivacyNote />
+      <Disclaimer />
+    </ScreenShell>
+  );
+}

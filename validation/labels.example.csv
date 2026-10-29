@@ -1,0 +1,7 @@
+video,left_deg,right_deg
+# One row per video. Angles are foot progression angles in degrees, measured against the walking direction:
+#   toe-out = positive, toe-in = negative. left/right = the person's own left and right foot.
+# Replace these example rows with your hand measurements and save the file as validation/labels.csv
+walk01.mp4,8,5
+walk02.mp4,14,12
+walk03.mov,-3,2
