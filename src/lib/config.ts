@@ -41,6 +41,17 @@ export type CaptureMode = "topdown" | "front";
  */
 export const CAPTURE_MODE: CaptureMode = "topdown";
 
+/**
+ * When the person is asked to tap the gap between the big toe and the next toe on a frame of their video (components/MarkFoot.tsx).
+ * The tap teaches the feet finder what this person's foot looks like (colour, size) and which way the toes point, so socks, unusual
+ * skin tones and odd lighting stop being failures. Top-down mode only.
+ *  - "always": after every recording or upload, with a Skip button.
+ *  - "onFailure": only on the error screen after a scan could not find the feet ("Tap your foot and try again").
+ *  - "off": never.
+ */
+export type MarkStep = "always" | "onFailure" | "off";
+export const MARK_STEP: MarkStep = "always";
+
 const CAPTURE_PROFILES = {
   topdown: { countdownSec: 3, maxRecordSec: 10 },
   front: { countdownSec: 8, maxRecordSec: 10 },

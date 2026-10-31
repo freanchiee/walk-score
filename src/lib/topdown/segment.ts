@@ -33,6 +33,20 @@ export interface SegmentOptions {
   footAspect: number;
   /** Blobs scoring below this are not feet. */
   minScore: number;
+  /**
+   * The colour of this person's foot, learned from where they tapped (see seed.ts). When set it replaces the generic skin
+   * hue / chroma test, so socks, unusual skin tones and odd lighting work, and rugs and shorts of another colour are ignored.
+   * A frame where it finds no foot falls back to the generic test.
+   */
+  seed?: SeedColour | null;
+  /** How far (in standard deviations of the seed colour) a pixel may be from it. */
+  seedTolerance: number;
+}
+
+/** A foot colour in Lab: mean and a tolerance per channel (already widened for shading and lighting changes). */
+export interface SeedColour {
+  mean: [number, number, number];
+  sd: [number, number, number];
 }
 
 export const DEFAULT_SEGMENT_OPTIONS: SegmentOptions = {
@@ -46,6 +60,8 @@ export const DEFAULT_SEGMENT_OPTIONS: SegmentOptions = {
   maxAreaFrac: 0.14,
   footAspect: 2.6,
   minScore: 0.3,
+  seed: null,
+  seedTolerance: 3,
 };
 
 export interface FootBlob {
@@ -92,6 +108,8 @@ export interface FrameSegmentation {
   mask: Uint8Array;
   width: number;
   height: number;
+  /** true when the seed colour (from a tap) found these feet; false for the generic test (no seed, or the seed found nothing) */
+  seeded: boolean;
 }
 
 // ---------- helpers ------------------------------------------------------------------------------------
@@ -172,7 +190,7 @@ export function estimateFloor(lab: LabPlanes, n: number, stride = 3): FloorModel
   return { mu, inv };
 }
 
-function distanceMap(lab: LabPlanes, floor: FloorModel, n: number): Float32Array {
+export function distanceMap(lab: LabPlanes, floor: FloorModel, n: number): Float32Array {
   const D = new Float32Array(n);
   const { mu, inv } = floor;
   for (let i = 0; i < n; i++) {
@@ -335,7 +353,7 @@ export function fitFootAxis(xs: number[], ys: number[], footAspect: number): Axi
   return fit as AxisFit;
 }
 
-function buildBlob(
+export function buildBlob(
   c: Component,
   labels: Int32Array,
   w: number,
@@ -410,12 +428,22 @@ export function segmentFeet(
 
   const mask = new Uint8Array(n);
   let candidates = 0;
+  const seed = o.seed;
+  const tol2 = o.seedTolerance * o.seedTolerance;
   for (let i = 0; i < n; i++) {
     if (D[i] <= o.floorDistance || tex[i] > o.maxTextureStd) continue;
-    const C = Math.hypot(lab.a[i], lab.b[i]);
-    if (C < o.minChroma) continue;
-    const hue = (Math.atan2(lab.b[i], lab.a[i]) * 180) / Math.PI;
-    if (hue < o.hueMin || hue > o.hueMax) continue;
+    if (seed) {
+      // this person's foot colour, from the tap, instead of the generic skin window
+      const dl = (lab.L[i] - seed.mean[0]) / seed.sd[0];
+      const da = (lab.a[i] - seed.mean[1]) / seed.sd[1];
+      const db = (lab.b[i] - seed.mean[2]) / seed.sd[2];
+      if (dl * dl + da * da + db * db > tol2) continue;
+    } else {
+      const C = Math.hypot(lab.a[i], lab.b[i]);
+      if (C < o.minChroma) continue;
+      const hue = (Math.atan2(lab.b[i], lab.a[i]) * 180) / Math.PI;
+      if (hue < o.hueMin || hue > o.hueMax) continue;
+    }
     mask[i] = 1;
     candidates++;
   }
@@ -441,5 +469,7 @@ export function segmentFeet(
     }
   }
   kept.sort((p, q) => p.cx - q.cx);
-  return { blobs: kept, floor, candidateFrac: candidates / n, mask: opened, width: w, height: h };
+  // the seed colour found no foot in this frame (a shadow, a blur): try the generic skin test rather than give up
+  if (seed && kept.length === 0) return segmentFeet(rgba, w, h, { ...partial, seed: null });
+  return { blobs: kept, floor, candidateFrac: candidates / n, mask: opened, width: w, height: h, seeded: !!seed };
 }

@@ -3,6 +3,7 @@ import { CAPTURE_CONFIG } from "../config";
 import { loadVideo, seekTo } from "../pose/video";
 import type { TopDownFrame } from "./analyze";
 import { floorPatch, phaseCorrelate } from "./floorflow";
+import { seededSegmentOptions, type FootSeed } from "./seed";
 import { segmentFeet, type SegmentOptions } from "./segment";
 
 export const TOPDOWN_FPS = 15;
@@ -15,6 +16,11 @@ export interface TopDownExtractOptions {
   maxSeconds?: number;
   durationHint?: number;
   segment?: Partial<SegmentOptions>;
+  /**
+   * What the person's tap on a toe gap taught the finder (seed.ts): their foot's colour replaces the generic skin test, and the
+   * size limits follow their foot. A frame where it finds nothing falls back to the generic test.
+   */
+  seed?: FootSeed | null;
   /** experimental: also estimate how the floor texture slides between sampled frames (floorflow.ts) */
   flow?: boolean;
   onProgress?: (p: { stage: string; done: number; total: number }) => void;
@@ -24,7 +30,17 @@ export interface TopDownExtractOptions {
 export interface TopDownExtraction {
   frames: TopDownFrame[];
   video: VideoInfo;
-  meta: { elapsedMs: number; msPerFrame: number; workWidth: number; workHeight: number; sourceWidth: number; sourceHeight: number };
+  meta: {
+    elapsedMs: number;
+    msPerFrame: number;
+    workWidth: number;
+    workHeight: number;
+    sourceWidth: number;
+    sourceHeight: number;
+    /** with a seed: frames where its colour found the feet / frames that fell back to the generic skin test (both 0 without one) */
+    seededFrames: number;
+    fallbackFrames: number;
+  };
 }
 
 /**
@@ -56,6 +72,9 @@ export async function extractFeet(source: Blob, opts: TopDownExtractOptions = {}
     const frames: TopDownFrame[] = [];
     const loopStart = performance.now();
     let prevPatch: ReturnType<typeof floorPatch> = null;
+    const segmentOptions = opts.seed ? seededSegmentOptions(opts.seed, opts.segment) : opts.segment;
+    let seededFrames = 0;
+    let fallbackFrames = 0;
 
     for (let i = 0; i < total; i++) {
       if (opts.signal?.aborted) throw new DOMException("Cancelled", "AbortError");
@@ -63,7 +82,11 @@ export async function extractFeet(source: Blob, opts: TopDownExtractOptions = {}
       await seekTo(clip.video, t);
       ctx.drawImage(clip.video, 0, 0, workW, workH);
       const { data } = ctx.getImageData(0, 0, workW, workH);
-      const seg = segmentFeet(data, workW, workH, opts.segment);
+      const seg = segmentFeet(data, workW, workH, segmentOptions);
+      if (opts.seed) {
+        if (seg.seeded) seededFrames++;
+        else fallbackFrames++;
+      }
       const frame: TopDownFrame = { t, blobs: seg.blobs };
       if (opts.flow) {
         const patch = floorPatch(data, workW, workH, seg.mask);
@@ -88,6 +111,8 @@ export async function extractFeet(source: Blob, opts: TopDownExtractOptions = {}
         workHeight: workH,
         sourceWidth: clip.width,
         sourceHeight: clip.height,
+        seededFrames,
+        fallbackFrames,
       },
     };
   } finally {

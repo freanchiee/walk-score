@@ -140,6 +140,21 @@ export interface FrameDebug {
   right: FootFrameDebug;
 }
 
+/** top-down: what the person's tap on a toe gap taught the feet finder (see lib/topdown/seed.ts). In memory only, like the rest. */
+export interface SeedSummary {
+  /** the foot colour that was learned, Lab */
+  colour: [number, number, number];
+  /** which way the tapped toes point, degrees clockwise from the top of the picture; null when the tap was not near the toes */
+  toeAngleDeg: number | null;
+  /** frames where the learned colour found the feet / frames that fell back to the generic skin test */
+  seededFrames: number;
+  fallbackFrames: number;
+  /** angle between the tapped toes and the walking direction from the ground flow (0 = straight ahead); null without walking or toes */
+  vsWalkingDeg: number | null;
+  /** the clip had no walking in it and its forward direction was taken from the tapped toes instead of the top edge */
+  setDirection: boolean;
+}
+
 export interface AnalysisResult {
   ok: boolean;
   failure?: { code: FailureCode; message: string };
@@ -183,4 +198,6 @@ export interface AnalysisResult {
   swapLeftRight: boolean;
   /** top-down camera captures: what the phone's sensors say about the capture (see lib/sensors/gate.ts) */
   capture?: CaptureReport;
+  /** top-down: present when the person tapped a toe gap before the scan */
+  seed?: SeedSummary;
 }

@@ -24,6 +24,7 @@ export const MODE_COPY: Record<CaptureMode, ModeCopy> = {
       "Hold your phone flat in front of you, screen up, back camera pointing at the floor, so both feet are in the picture and the top of the phone points the way you will walk. The bubble on screen shows when it is level.",
       `Tap Start. When Feet visible, Light OK, Level and Steady are all green, a 3-2-1 runs, then it records about ${CAPTURE_CONFIG.maxRecordSec} seconds. Glance at the screen during setup, then look ahead and walk normally in a straight line (about ${CAPTURE_CONFIG.maxRecordSec} m of clear floor).`,
       "Avoid shadows over your feet and walk at your usual relaxed pace. The score reads your steps.",
+      "After recording, tap the gap between your big toe and the next toe on one frame of the video. That shows the app what your foot looks like, which can help with socks, other skin tones or odd light. You can skip it.",
     ],
     captureIntro: `About ${CAPTURE_CONFIG.maxRecordSec} seconds of your bare feet seen from above while you walk normally. Your phone's motion sensors help check that it is level and steady.`,
     recordHint: `Hold the phone flat in front of you, glance at the screen during setup, then look ahead and walk normally. Tap Start: the countdown runs while all four checks are green, and recording stops by itself after ${CAPTURE_CONFIG.maxRecordSec} seconds.`,

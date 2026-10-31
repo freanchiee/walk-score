@@ -2,23 +2,39 @@
 
 import { useCallback, useRef, useState } from "react";
 import { trackEvent } from "@/lib/analytics";
+import { CAPTURE_MODE, MARK_STEP } from "@/lib/config";
 import { scanVideo } from "@/lib/pipeline";
 import type { ExtractProgress } from "@/lib/pose/landmarker";
 import { computeScore, type ScoreResult } from "@/lib/scoring/score";
 import type { CaptureInfo } from "@/lib/sensors/capture";
 import { mergeQuality } from "@/lib/sensors/quality";
+import { TAP_CAN_HELP, type FootSeed } from "@/lib/topdown/seed";
 import { Analyzing } from "./Analyzing";
 import { Capture, type VideoSource } from "./Capture";
 import { ErrorScreen } from "./ErrorScreen";
 import { Landing } from "./Landing";
+import { MarkFoot } from "./MarkFoot";
 import { ResultScreen } from "./ResultScreen";
+
+/** A recorded or uploaded video, kept in memory while the person taps their foot and until the scan is read. Never uploaded. */
+interface Clip {
+  blob: Blob;
+  source: VideoSource;
+  durationHint?: number;
+  capture?: CaptureInfo;
+}
 
 type Screen =
   | { name: "landing" }
   | { name: "capture" }
+  | { name: "mark"; clip: Clip; reason?: string }
   | { name: "analyzing"; progress: ExtractProgress }
   | { name: "result"; score: ScoreResult }
-  | { name: "error"; message: string; detail?: string };
+  /** `retryClip` is set when tapping a foot in the same video could help (the feet were not found) */
+  | { name: "error"; message: string; detail?: string; retryClip?: Clip };
+
+/** The tap on the foot belongs to the top-down view; the front view reads a pose model instead. */
+const TAP_ENABLED = CAPTURE_MODE === "topdown" && MARK_STEP !== "off";
 
 export function WalkScoreApp() {
   const [screen, setScreen] = useState<Screen>({ name: "landing" });
@@ -31,21 +47,24 @@ export function WalkScoreApp() {
     setScreen({ name: "capture" });
   }, []);
 
-  const handleVideo = useCallback(async (blob: Blob, source: VideoSource, durationHint?: number, capture?: CaptureInfo) => {
+  const analyse = useCallback(async (clip: Clip, seed: FootSeed | null) => {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     setScreen({ name: "analyzing", progress: { stage: "Starting…", done: 0, total: 1 } });
     try {
-      const analysis = await scanVideo(blob, {
-        durationHint,
-        capture,
+      const analysis = await scanVideo(clip.blob, {
+        durationHint: clip.durationHint,
+        capture: clip.capture,
+        seed,
         signal: ctrl.signal,
         onProgress: (progress) => setScreen((s) => (s.name === "analyzing" ? { name: "analyzing", progress } : s)),
       });
       if (!analysis.ok || analysis.leftDeg === null || analysis.rightDeg === null) {
+        const code = analysis.failure?.code;
         setScreen({
           name: "error",
           message: analysis.failure?.message ?? "We couldn't measure your steps in that video.",
+          retryClip: TAP_ENABLED && code && TAP_CAN_HELP.has(code) ? clip : undefined,
         });
         return;
       }
@@ -62,11 +81,12 @@ export function WalkScoreApp() {
         captureNote: cq && !cq.lowConfidence && cq.category !== "good" ? cq.reasons[0] : undefined,
       });
       scoresShown.current += 1;
-      trackEvent({ name: "score_shown", props: { label: score.label.id, quality: score.quality, source } });
+      trackEvent({ name: "score_shown", props: { label: score.label.id, quality: score.quality, source: clip.source } });
       setScreen({ name: "result", score });
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        setScreen({ name: "capture" });
+        // cancelled: back to the tap screen when there is one (same video), else to the camera
+        setScreen(TAP_ENABLED ? { name: "mark", clip } : { name: "capture" });
         return;
       }
       const detail = err instanceof Error ? err.message : String(err);
@@ -80,11 +100,33 @@ export function WalkScoreApp() {
     }
   }, []);
 
+  const handleVideo = useCallback(
+    (blob: Blob, source: VideoSource, durationHint?: number, capture?: CaptureInfo) => {
+      const clip: Clip = { blob, source, durationHint, capture };
+      if (TAP_ENABLED && MARK_STEP === "always") setScreen({ name: "mark", clip });
+      else void analyse(clip, null);
+    },
+    [analyse],
+  );
+
   switch (screen.name) {
     case "landing":
       return <Landing onStart={startScan} />;
     case "capture":
       return <Capture onVideo={handleVideo} onBack={() => setScreen({ name: "landing" })} />;
+    case "mark": {
+      const clip = screen.clip;
+      return (
+        <MarkFoot
+          blob={clip.blob}
+          durationHint={clip.durationHint}
+          reason={screen.reason}
+          onConfirm={(seed) => void analyse(clip, seed)}
+          onSkip={() => void analyse(clip, null)}
+          onBack={() => setScreen({ name: "capture" })}
+        />
+      );
+    }
     case "analyzing":
       return <Analyzing progress={screen.progress} onCancel={() => abortRef.current?.abort()} />;
     case "result":
@@ -95,14 +137,17 @@ export function WalkScoreApp() {
           onScanAgain={startScan}
         />
       );
-    case "error":
+    case "error": {
+      const retryClip = screen.retryClip;
       return (
         <ErrorScreen
           message={screen.message}
           detail={screen.detail}
           onRetry={startScan}
           onBack={() => setScreen({ name: "landing" })}
+          onMark={retryClip ? () => setScreen({ name: "mark", clip: retryClip, reason: "We couldn't find your feet last time. Tapping one foot can help." }) : undefined}
         />
       );
+    }
   }
 }

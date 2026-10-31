@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyzeTopDown, type TopDownFrame } from "../topdown/analyze";
+import { analyzeTopDown, bothFeetShare, type TopDownFrame } from "../topdown/analyze";
 import type { FootBlob } from "../topdown/segment";
 import { generateBlobWalk } from "../topdown/synthetic";
 import { SENSOR_CONFIG } from "../config";
@@ -445,6 +445,30 @@ describe("capture gating", () => {
     expect(bad.reliableShare).toBeCloseTo(0.4, 1);
     expect(bad.tilt.overShare).toBeCloseTo(0.6, 1);
     expect(bad.quality.score).toBeLessThan(good.quality.score);
+  });
+
+  it("takes the feet-in-view share from the scan itself when one is given (after a tap on the foot the live check's number is stale)", () => {
+    const cap = capture({ tilt: () => 3, steps: 16 });
+    cap.live.feetShare = 0; // the live check runs the generic skin test and could not see socks
+    const live = buildReport({ capture: cap, frames: annotateFrames(frames, cap), flags });
+    expect(live.feet.share).toBe(0);
+    expect(live.quality.reasons.join(" ")).toContain("Both feet were not in view");
+    const scan = buildReport({ capture: cap, frames: annotateFrames(frames, cap), flags, feetShare: 0.96 });
+    expect(scan.feet.share).toBe(0.96);
+    expect(scan.quality.reasons.join(" ")).not.toContain("Both feet were not in view");
+    expect(scan.quality.score).toBeGreaterThan(live.quality.score);
+    // nothing given: the live number is kept; an explicit null means "not known"
+    expect(buildReport({ capture: cap, frames, flags }).feet.share).toBe(0);
+    expect(buildReport({ capture: cap, frames, flags, feetShare: null }).feet.share).toBeNull();
+  });
+
+  it("bothFeetShare counts the frames with two whole feet", () => {
+    const { frames: walk } = generateBlobWalk({ leftDeg: 10, rightDeg: 4, durationSec: 3, fps: 10 });
+    expect(bothFeetShare([])).toBeNull();
+    expect(bothFeetShare(walk)).toBeGreaterThan(0.8);
+    expect(bothFeetShare(walk.map((f) => ({ ...f, blobs: f.blobs.slice(0, 1) })))).toBe(0);
+    expect(bothFeetShare(walk.map((f) => ({ ...f, blobs: f.blobs.map((b) => ({ ...b, clipped: true })) })))).toBe(0);
+    expect(bothFeetShare(walk.map((f) => ({ ...f, blobs: f.blobs.map((b) => ({ ...b, score: 0.3 })) })))).toBe(0);
   });
 
   it("without any sensor data the scan is low confidence and keeps going (a rough read, not a rejection)", () => {

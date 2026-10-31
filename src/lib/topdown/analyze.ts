@@ -74,6 +74,12 @@ export interface TopDownOptions {
    * two agree; a run no step explains loses 15 % of it. null = no sensor timing: nothing changes.
    */
   stepTimesSec: number[] | null;
+  /**
+   * Which way the toes of the foot the person tapped point in the picture (unit vector, image coordinates; see seed.ts).
+   * Used only for a clip with no ground motion, which has no other way to tell which edge of the picture faces forward: forward
+   * is then the side of the picture the toes point to (up or down), not always the top edge. With walking, the ground flow decides.
+   */
+  seedToeDir: [number, number] | null;
   outlierFloorDeg: number;
   outlierMadK: number;
   /** Swap the reported feet (e.g. the phone was held with its top edge toward the body while standing still). */
@@ -98,6 +104,7 @@ export const DEFAULT_TOPDOWN_OPTIONS: TopDownOptions = {
   headingBlend: 0,
   balanceFeet: true,
   stepTimesSec: null,
+  seedToeDir: null,
   outlierFloorDeg: 8,
   outlierMadK: 3,
   swapLeftRight: false,
@@ -117,6 +124,21 @@ export const TOPDOWN_PRESETS: ReadonlyArray<{ id: string; label: string; options
 
 /** A stance whose own foot motion points further than this from the clip's walking direction is measured against the clip's direction instead. */
 const MAX_LOCAL_HEADING_DEV_DEG = 20;
+
+/**
+ * Share of the frames in which two whole feet were found: the same test the live "Feet visible" check applies to the preview
+ * (score at least `minScore`, not cut by the frame edge). null when there are no frames.
+ */
+export function bothFeetShare(frames: TopDownFrame[], minScore: number = DEFAULT_TOPDOWN_OPTIONS.minBlobScore): number | null {
+  if (!frames.length) return null;
+  return frames.filter((f) => f.blobs.filter((b) => b.score >= minScore && !b.clipped).length >= 2).length / frames.length;
+}
+
+/** The edge of the picture a direction points to most (up, right, down or left); a tie goes to up / down. No direction means up. */
+export function cardinalDirection(v: [number, number] | null): [number, number] {
+  if (!v || Math.hypot(v[0], v[1]) < 1e-6) return [0, -1];
+  return Math.abs(v[0]) > Math.abs(v[1]) ? [Math.sign(v[0]), 0] : [0, v[1] < 0 ? -1 : 1];
+}
 
 export const TOPDOWN_FAILURE_MESSAGES: Record<FailureCode, string> = {
   ...GATE_FAILURE_MESSAGES,
@@ -210,7 +232,9 @@ export function analyzeTopDown(
   if (mids.length >= 3) mid = [median(mids.map((m) => m[0])), median(mids.map((m) => m[1]))];
   else warnings.push("Both feet were rarely visible at the same time; left/right is guessed from the picture's centre line.");
 
-  // Forward direction f (unit, image coords). Start with "up"; refine from the ground flow below.
+  // Forward direction f (unit, image coords). Start with "up"; refine from the ground flow below. A clip with no ground motion
+  // keeps "up" unless the person marked a foot whose toes point to another edge of the picture.
+  const standingFwd = cardinalDirection(o.seedToeDir);
   let fwd: [number, number] = [0, -1];
   let walking = false;
   let flow: [number, number] = [0, 0];
@@ -223,7 +247,7 @@ export function analyzeTopDown(
     walking = est.walking;
     flow = est.flow;
     flowSamples = est.samples;
-    const next: [number, number] = walking ? [-flow[0] / Math.hypot(...flow), -flow[1] / Math.hypot(...flow)] : [0, -1];
+    const next: [number, number] = walking ? [-flow[0] / Math.hypot(...flow), -flow[1] / Math.hypot(...flow)] : standingFwd;
     // (any real change, about 1 degree: a phone rotated 10-20 degrees used to keep the sides built for "up", and when the
     // feet were far apart along the walking direction that swapped left and right in a quarter of the frames)
     const changed = Math.hypot(next[0] - fwd[0], next[1] - fwd[1]) > 0.02;
@@ -238,7 +262,11 @@ export function analyzeTopDown(
   result.standing = !walking;
   for (const d of debug) d.approach = walking;
   if (!walking) {
-    warnings.push("No ground motion detected: measuring a standing stance and assuming the top of the phone points forward.");
+    warnings.push(
+      standingFwd[1] === -1
+        ? "No ground motion detected: measuring a standing stance and assuming the top of the phone points forward."
+        : "No ground motion detected: measuring a standing stance, with forward taken from the way the toes you marked point in the picture.",
+    );
   } else if (Math.abs(psi) > 25) {
     warnings.push(`The phone's top edge points ${Math.abs(psi).toFixed(0)}° away from your walking direction; angles are corrected for it.`);
   }

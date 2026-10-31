@@ -12,11 +12,14 @@ export function ErrorScreen({
   detail,
   onRetry,
   onBack,
+  onMark,
 }: {
   message: string;
   detail?: string;
   onRetry: () => void;
   onBack: () => void;
+  /** when a tap on the foot could help (the feet were not found): go back to the tap screen with the same video */
+  onMark?: () => void;
 }) {
   const h1 = useHeadingFocus();
   return (
@@ -45,8 +48,18 @@ export function ErrorScreen({
         </ul>
       </Card>
       <div className="flex flex-col gap-3">
-        <Button onClick={onRetry} className="w-full py-4 text-lg">
-          Try again
+        {onMark && (
+          <>
+            <Button onClick={onMark} className="w-full py-4 text-lg">
+              Tap your foot and try again
+            </Button>
+            <p className="text-center text-sm text-muted">
+              Same video, no need to walk again: tap one foot in it so the app can learn what your foot looks like.
+            </p>
+          </>
+        )}
+        <Button variant={onMark ? "secondary" : "primary"} onClick={onRetry} className="w-full py-4 text-lg">
+          {onMark ? "Record again" : "Try again"}
         </Button>
         <Button variant="ghost" onClick={onBack}>
           Back to start

@@ -8,9 +8,10 @@ import type { CaptureInfo } from "./sensors/capture";
 import { annotateFrames, buildReport, rejectionFor, sensorTimeMs, stepTimesSec } from "./sensors/gate";
 import { setLastCapture } from "./sensors/lastCapture";
 import { correctFramesForTilt } from "./sensors/tiltCorrection";
-import { analyzeTopDown } from "./topdown/analyze";
+import { analyzeTopDown, bothFeetShare, cardinalDirection } from "./topdown/analyze";
 import { extractFeet } from "./topdown/extract";
 import { floorFlowHeading } from "./topdown/floorflow";
+import { seedSummary, seedWarnings, type FootSeed } from "./topdown/seed";
 
 export interface ScanOptions {
   mode?: CaptureMode;
@@ -21,6 +22,11 @@ export interface ScanOptions {
    * (an uploaded video) the tilt cannot be checked and the scan is marked low confidence.
    */
   capture?: CaptureInfo | null;
+  /**
+   * top-down only: what the person's tap on a toe gap taught the feet finder (see MarkFoot / topdown/seed.ts): their foot's
+   * colour replaces the generic skin test. null or absent = the generic finder.
+   */
+  seed?: FootSeed | null;
   /** MediaRecorder duration, for containers that do not store one */
   durationHint?: number;
   onProgress?: (p: ExtractProgress) => void;
@@ -32,7 +38,8 @@ export async function scanVideo(blob: Blob, opts: ScanOptions = {}): Promise<Ana
   const mode = opts.mode ?? CAPTURE_MODE;
   if (mode === "topdown") {
     const flags = experimentFlags();
-    const ex = await extractFeet(blob, { ...opts, flow: flags.floorFlow });
+    const seed = opts.seed ?? null;
+    const ex = await extractFeet(blob, { ...opts, seed, flow: flags.floorFlow });
     const cap = opts.capture ?? null;
 
     // line the sensor log up with the frames: tilted frames stay out of the angle averaging
@@ -47,7 +54,12 @@ export async function scanVideo(blob: Blob, opts: ScanOptions = {}): Promise<Ana
     const result = analyzeTopDown(frames, ex.video, {
       ...calibrationOptions(opts.calibration ?? loadCalibration()),
       stepTimesSec: cap?.sensors ? stepTimesSec(cap, ex.video.duration) : null,
+      seedToeDir: seed?.toeDir ?? null,
     });
+    if (seed) {
+      result.seed = seedSummary(seed, ex.meta, result.heading, cardinalDirection(seed.toeDir));
+      result.warnings.push(...seedWarnings(result.seed));
+    }
 
     const report = buildReport({
       capture: cap,
@@ -55,6 +67,8 @@ export async function scanVideo(blob: Blob, opts: ScanOptions = {}): Promise<Ana
       flags,
       tiltCorrected,
       floorFlow: flags.floorFlow ? floorFlowHeading(ex.frames) : undefined,
+      // the live "Feet visible" check cannot see socks; once the person has tapped a foot, count what the scan itself found
+      feetShare: seed ? bothFeetShare(frames) : undefined,
     });
     result.capture = report;
     const rejection = rejectionFor(report, result, flags);
@@ -62,7 +76,7 @@ export async function scanVideo(blob: Blob, opts: ScanOptions = {}): Promise<Ana
       result.ok = false;
       result.failure = rejection;
     }
-    setLastCapture({ info: cap, report, failure: rejection?.message ?? null, at: performance.now() });
+    setLastCapture({ info: cap, report, failure: rejection?.message ?? null, seed: result.seed ?? null, at: performance.now() });
     return result;
   }
   const ex = await extractLandmarks(blob, opts);

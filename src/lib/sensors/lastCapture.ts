@@ -1,3 +1,4 @@
+import type { SeedSummary } from "../analysis/types";
 import type { CaptureInfo, CaptureReport } from "./capture";
 
 /**
@@ -9,6 +10,8 @@ export interface LastCapture {
   report: CaptureReport | null;
   /** the rejection message when the scan was turned down */
   failure: string | null;
+  /** what the person's tap on a toe gap taught the feet finder, when they tapped one */
+  seed: SeedSummary | null;
   /** performance.now() when the analysis finished */
   at: number;
 }

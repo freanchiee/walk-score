@@ -210,6 +210,16 @@ export function SensorsDebug() {
                     "Floor-flow heading",
                     last.report.floorFlow === undefined ? "off" : last.report.floorFlow === null ? "not available" : `${f1(last.report.floorFlow.psiDeg, true)}° (conf ${last.report.floorFlow.confidence.toFixed(2)}, ${last.report.floorFlow.samples} frames)`,
                   ],
+                  ...(last.seed
+                    ? ([
+                        ["Tapped foot", "yes: its colour replaced the skin test"],
+                        ["Tapped colour (Lab L / a / b)", last.seed.colour.map((v) => v.toFixed(0)).join(" / ")],
+                        ["Frames: tapped colour / skin test", `${last.seed.seededFrames} / ${last.seed.fallbackFrames}`],
+                        ["Tapped toes point", last.seed.toeAngleDeg === null ? "tap was not near the toes" : `${f1(last.seed.toeAngleDeg, true)}° from the top of the picture`],
+                        ["Toes vs walking direction", last.seed.vsWalkingDeg === null ? "–" : `${f1(last.seed.vsWalkingDeg)}°`],
+                        ["Forward taken from the toes", last.seed.setDirection ? "yes (no walking in the clip)" : "no"],
+                      ] as const)
+                    : ([["Tapped foot", "no (skin test only)"]] as const)),
                 ] as const
               ).map(([k, v]) => (
                 <div key={k} className="rounded-lg border border-line bg-surface px-2 py-1.5">

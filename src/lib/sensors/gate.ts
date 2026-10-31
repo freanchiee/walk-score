@@ -44,6 +44,11 @@ export function buildReport(a: {
   flags: ExperimentFlags;
   tiltCorrected?: boolean;
   floorFlow?: CaptureReport["floorFlow"];
+  /**
+   * Share of frames in which the analysis itself found both feet. Replaces the live check's number when given: that check
+   * uses the generic skin test, so after the person tapped a foot (socks, other skin tones) it would still say "feet not in view".
+   */
+  feetShare?: number | null;
 }): CaptureReport {
   const cap = a.capture;
   const s = cap?.sensors ?? null;
@@ -63,6 +68,7 @@ export function buildReport(a: {
       : ({ status: "off", maxAbsDeg: null, swayRmsDeg: null } as const);
   const steps = s && s.hasMotion ? s.stepTimesMs.length : null;
   const rotation = window && window.rotationRmsDegPerSec !== null && Number.isFinite(window.rotationRmsDegPerSec) ? window.rotationRmsDegPerSec : null;
+  const feetShare = a.feetShare !== undefined ? a.feetShare : (cap?.live.feetShare ?? null);
 
   const quality = captureQuality({
     sensors,
@@ -71,7 +77,7 @@ export function buildReport(a: {
     rotationRmsDegPerSec: rotation,
     steps,
     lightOkShare: cap?.live.lightOkShare ?? null,
-    feetShare: cap?.live.feetShare ?? null,
+    feetShare,
     forcedStart: cap?.forcedStart ?? false,
     yawStatus: yaw.status,
   });
@@ -84,7 +90,7 @@ export function buildReport(a: {
     reliableShare,
     rotationRmsDegPerSec: rotation,
     light: { okShare: cap?.live.lightOkShare ?? null },
-    feet: { share: cap?.live.feetShare ?? null },
+    feet: { share: feetShare },
     yaw: { status: yaw.status, maxAbsDeg: yaw.maxAbsDeg, swayRmsDeg: yaw.swayRmsDeg },
     forcedStart: cap?.forcedStart ?? false,
     tiltCorrected: a.tiltCorrected ?? false,
