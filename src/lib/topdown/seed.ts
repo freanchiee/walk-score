@@ -30,6 +30,8 @@ export interface FootSeed {
    * A hint only: a clip with no walking in it has no other way to know which way the person faces.
    */
   toeDir: [number, number] | null;
+  /** where the person tapped: the live camera preview before recording, or a frame of the recorded video */
+  from?: "preview" | "video";
 }
 
 export interface SeedFound {
@@ -264,6 +266,7 @@ export function seedSummary(
     vsWalkingDeg = d;
   }
   return {
+    from: seed.from ?? null,
     colour: [...seed.colour.mean],
     toeAngleDeg,
     seededFrames: frames.seededFrames,

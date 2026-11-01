@@ -1,3 +1,4 @@
+import type { FootSeed } from "../topdown/seed";
 import type { SensorLog } from "./log";
 import type { CaptureQuality } from "./quality";
 import type { SensorStatus } from "./types";
@@ -26,6 +27,11 @@ export interface CaptureInfo {
   live: { lightOkShare: number | null; feetShare: number | null };
   /** label of the camera that was used, when the browser told us */
   lens: string | null;
+  /**
+   * The foot the person tapped on the live preview before recording (lib/topdown/seed.ts), when they did. It makes the live
+   * Feet visible check see socks and is then used for the analysis too, so the tap screen after recording is skipped.
+   */
+  seed?: FootSeed | null;
 }
 
 /** The gating report attached to every analysis of a camera capture. */

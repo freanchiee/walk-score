@@ -212,7 +212,10 @@ export function SensorsDebug() {
                   ],
                   ...(last.seed
                     ? ([
-                        ["Tapped foot", "yes: its colour replaced the skin test"],
+                        [
+                          "Tapped foot",
+                          `yes, ${last.seed.from === "preview" ? "on the camera preview" : last.seed.from === "video" ? "on a frame of the video" : "(where: unknown)"}: its colour replaced the skin test`,
+                        ],
                         ["Tapped colour (Lab L / a / b)", last.seed.colour.map((v) => v.toFixed(0)).join(" / ")],
                         ["Frames: tapped colour / skin test", `${last.seed.seededFrames} / ${last.seed.fallbackFrames}`],
                         ["Tapped toes point", last.seed.toeAngleDeg === null ? "tap was not near the toes" : `${f1(last.seed.toeAngleDeg, true)}° from the top of the picture`],

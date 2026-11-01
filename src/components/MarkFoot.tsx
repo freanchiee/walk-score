@@ -260,7 +260,7 @@ export function MarkFoot({ blob, durationHint, reason, onConfirm, onSkip, onBack
   const seed = found?.seed ?? null;
   const confirm = () => {
     if (!seed) return;
-    onConfirm(flipped && seed.toeDir ? { ...seed, toeDir: [-seed.toeDir[0], -seed.toeDir[1]] } : seed);
+    onConfirm({ ...seed, from: "video", toeDir: flipped && seed.toeDir ? [-seed.toeDir[0], -seed.toeDir[1]] : seed.toeDir });
   };
 
   const status = loadError

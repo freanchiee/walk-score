@@ -103,8 +103,10 @@ export function WalkScoreApp() {
   const handleVideo = useCallback(
     (blob: Blob, source: VideoSource, durationHint?: number, capture?: CaptureInfo) => {
       const clip: Clip = { blob, source, durationHint, capture };
-      if (TAP_ENABLED && MARK_STEP === "always") setScreen({ name: "mark", clip });
-      else void analyse(clip, null);
+      // a foot tapped on the live preview is used as it is: no need to ask for a second tap
+      const liveSeed = capture?.seed ?? null;
+      if (TAP_ENABLED && MARK_STEP === "always" && !liveSeed) setScreen({ name: "mark", clip });
+      else void analyse(clip, liveSeed);
     },
     [analyse],
   );
@@ -113,7 +115,7 @@ export function WalkScoreApp() {
     case "landing":
       return <Landing onStart={startScan} />;
     case "capture":
-      return <Capture onVideo={handleVideo} onBack={() => setScreen({ name: "landing" })} />;
+      return <Capture footTap={TAP_ENABLED} onVideo={handleVideo} onBack={() => setScreen({ name: "landing" })} />;
     case "mark": {
       const clip = screen.clip;
       return (

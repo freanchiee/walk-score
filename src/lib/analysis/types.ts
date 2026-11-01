@@ -142,6 +142,8 @@ export interface FrameDebug {
 
 /** top-down: what the person's tap on a toe gap taught the feet finder (see lib/topdown/seed.ts). In memory only, like the rest. */
 export interface SeedSummary {
+  /** where the person tapped: the live camera preview before recording, or a frame of the recorded video; null when not known */
+  from: "preview" | "video" | null;
   /** the foot colour that was learned, Lab */
   colour: [number, number, number];
   /** which way the tapped toes point, degrees clockwise from the top of the picture; null when the tap was not near the toes */

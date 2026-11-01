@@ -160,7 +160,7 @@ describe("a tap lets the finder read feet the generic skin test cannot see", () 
     expect(r.ok).toBe(true);
     expect(Math.abs((r.leftDeg as number) - 12)).toBeLessThan(3);
     expect(Math.abs((r.rightDeg as number) - 4)).toBeLessThan(3);
-  });
+  }, 60_000); // renders 82 frames: about 5 s alone, more when other test files run beside it
 });
 
 describe("using the tapped toes in the analysis", () => {
@@ -231,6 +231,14 @@ describe("what a tap reports", () => {
     // across the 180° wrap
     const wrap = seedSummary(seedAt(170), { seededFrames: 40, fallbackFrames: 0 }, { psiDeg: -170, fitted: true });
     expect(wrap.vsWalkingDeg).toBeCloseTo(20, 6);
+  });
+
+  it("remembers where the tap was made (the live preview or a frame of the video)", () => {
+    const frames = { seededFrames: 10, fallbackFrames: 0 };
+    const heading = { psiDeg: 0, fitted: true };
+    expect(seedSummary(seedAt(0), frames, heading).from).toBeNull();
+    expect(seedSummary({ ...seedAt(0), from: "preview" }, frames, heading).from).toBe("preview");
+    expect(seedSummary({ ...seedAt(0), from: "video" }, frames, heading).from).toBe("video");
   });
 
   it("warns when the toes you marked point somewhere very different from where you walked", () => {

@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { frameLighting, lightStatus, type LightStatus } from "@/lib/capture/lighting";
+import { countWholeFeet } from "@/lib/capture/liveFeet";
 import { SENSOR_CONFIG } from "@/lib/config";
-import { segmentFeet } from "@/lib/topdown/segment";
+import type { FootSeed } from "@/lib/topdown/seed";
 
 export interface LiveChecks {
   /** both feet found in the preview / one / none; null before the first check */
@@ -24,13 +25,24 @@ const WINDOW = 3;
 /**
  * Looks at the camera preview a few times a second: are both feet in view (the same colour/shape feet finder the
  * analysis uses, on a small picture), and is the light fine (mean luminance and clipping)? Between begin() and end()
- * it also keeps the share of looks that passed, for the capture quality score.
+ * it also keeps the share of looks that passed, for the capture quality score. `seed` is a foot the person tapped on the
+ * preview: its colour then replaces the generic skin test, so socks and other skin tones count as feet.
  */
-export function useLiveChecks(videoRef: RefObject<HTMLVideoElement | null>, active: boolean): { checks: LiveChecks; begin: () => void; end: () => LiveShares } {
+export function useLiveChecks(
+  videoRef: RefObject<HTMLVideoElement | null>,
+  active: boolean,
+  seed: FootSeed | null = null,
+): { checks: LiveChecks; begin: () => void; end: () => LiveShares } {
   const [checks, setChecks] = useState<LiveChecks>({ feet: null, light: null, lightMean: null });
   const recent = useRef<Array<{ feet: number; light: LightStatus }>>([]);
   const tally = useRef({ on: false, looks: 0, lightOk: 0, feetOk: 0 });
   const canvas = useRef<HTMLCanvasElement | null>(null);
+  // the looks already taken describe the old colour: start the window afresh when the person taps another foot
+  const seedRef = useRef(seed);
+  useEffect(() => {
+    seedRef.current = seed;
+    recent.current = [];
+  }, [seed]);
 
   useEffect(() => {
     if (!active) return;
@@ -49,7 +61,7 @@ export function useLiveChecks(videoRef: RefObject<HTMLVideoElement | null>, acti
       const { data } = ctx.getImageData(0, 0, w, h);
       const lighting = frameLighting(data);
       const light = lightStatus(lighting);
-      const feet = segmentFeet(data, w, h).blobs.filter((b) => b.score >= 0.45 && !b.clipped).length;
+      const feet = countWholeFeet(data, w, h, seedRef.current);
       const r = recent.current;
       r.push({ feet, light });
       if (r.length > WINDOW) r.shift();

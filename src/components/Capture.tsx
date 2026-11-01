@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { LIGHT_HINTS } from "@/lib/capture/lighting";
+import { containedRect, previewPointToVideo } from "@/lib/capture/previewTap";
 import { CAPTURE_CONFIG, CAPTURE_MODE, SENSOR_CONFIG } from "@/lib/config";
 import { copy } from "@/lib/modeCopy";
 import {
@@ -15,6 +16,8 @@ import {
 } from "@/lib/pose/recorder";
 import type { CaptureInfo } from "@/lib/sensors/capture";
 import { tiltClass } from "@/lib/sensors/tilt";
+import { TOPDOWN_WORK_WIDTH } from "@/lib/topdown/extract";
+import { learnFootSeed, type FootSeed } from "@/lib/topdown/seed";
 import { ChipRow, LevelBubble, RecordRing, type Chip } from "./CaptureHud";
 import { FootGuideOverlay } from "./FootGuideOverlay";
 import { useHeadingFocus } from "./hooks";
@@ -42,12 +45,30 @@ function cameraErrorMessage(err: unknown): string {
 
 const fmt = (v: number | null, digits = 1) => (v === null || !Number.isFinite(v) ? "–" : v.toFixed(digits));
 
+/** What a tap on the preview found, shown for a moment: the ring where the finger was, and the foot it grew (null: refused). */
+interface PreviewFlash {
+  /** the tap, in CSS pixels inside the preview box */
+  x: number;
+  y: number;
+  region: { mask: Uint8Array; w: number; h: number } | null;
+  /** where the camera picture is inside the box, CSS pixels */
+  picture: { left: number; top: number; width: number; height: number };
+  mirrored: boolean;
+}
+const FLASH_MS = 1600;
+
 export function Capture({
   onVideo,
   onBack,
+  footTap = false,
 }: {
   onVideo: (blob: Blob, source: VideoSource, durationHint?: number, capture?: CaptureInfo) => void;
   onBack: () => void;
+  /**
+   * Let the person tap the gap between the big toe and the next toe on the live preview (top-down only). The learned foot makes
+   * the Feet visible check see socks and other skin tones, and goes along with the recording for the analysis.
+   */
+  footTap?: boolean;
 }) {
   const h1 = useHeadingFocus();
   const [mode, setMode] = useState<"choose" | "camera">("choose");
@@ -78,8 +99,43 @@ export function Capture({
   const { readout } = sensors;
   const { begin: beginSensors, end: endSensors, request: requestSensors } = sensors;
   const cameraShowing = mode === "camera" && (cam === "ready" || cam === "countdown" || cam === "recording");
-  const live = useLiveChecks(videoRef, cameraShowing);
+
+  // a foot the person tapped on the live preview (see onPreviewTap)
+  const tapEnabled = footTap && CAPTURE_MODE === "topdown";
+  const [seed, setSeed] = useState<FootSeed | null>(null);
+  const [tapError, setTapError] = useState<string | null>(null);
+  const [flash, setFlash] = useState<PreviewFlash | null>(null);
+  const seedRef = useRef<FootSeed | null>(null);
+  const flashTimer = useRef(0);
+  const flashCanvas = useRef<HTMLCanvasElement>(null);
+  const workCanvas = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    seedRef.current = seed;
+  }, [seed]);
+  useEffect(() => () => window.clearTimeout(flashTimer.current), []);
+
+  const live = useLiveChecks(videoRef, cameraShowing, seed);
   const { begin: beginLive, end: endLive } = live;
+
+  // paint the grown foot on the flash canvas
+  useEffect(() => {
+    const c = flashCanvas.current;
+    const region = flash?.region;
+    if (!c || !region) return;
+    c.width = region.w;
+    c.height = region.h;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    const img = ctx.createImageData(region.w, region.h);
+    for (let i = 0; i < region.mask.length; i++) {
+      if (!region.mask[i]) continue;
+      img.data[4 * i] = 74;
+      img.data[4 * i + 1] = 222;
+      img.data[4 * i + 2] = 128;
+      img.data[4 * i + 3] = 150;
+    }
+    ctx.putImageData(img, 0, 0);
+  }, [flash]);
 
   const clearTimers = useCallback(() => {
     timersRef.current.forEach((t) => window.clearInterval(t));
@@ -115,7 +171,12 @@ export function Capture({
       id: "feet",
       label: "Feet visible",
       state: live.checks.feet === null ? "wait" : live.checks.feet === "both" ? "ok" : live.checks.feet === "one" ? "warn" : "bad",
-      hint: live.checks.feet === "one" ? "Keep both feet in the zones" : "Point the camera at your feet",
+      hint:
+        live.checks.feet === "one"
+          ? "Keep both feet in the zones"
+          : tapEnabled
+            ? "Point the camera at your feet, or tap the gap between your big toe and the next toe on the picture"
+            : "Point the camera at your feet",
     },
     {
       id: "light",
@@ -241,6 +302,7 @@ export function Capture({
             forcedStart,
             live: endLive(),
             lens: lensRef.current,
+            seed: seedRef.current,
           };
           onVideoRef.current(r.blob, "camera", r.durationSec, capture);
         })
@@ -299,6 +361,50 @@ export function Capture({
     onVideo(file, "upload");
   };
 
+  /**
+   * A tap on the live preview: learn the foot under the finger from the frame on screen (lib/topdown/seed.ts). The Feet visible
+   * check then looks for that colour, and the foot goes along with the recording so the analysis can use it too. Works while the
+   * preview is up and while the countdown is holding for Feet visible; not while recording.
+   */
+  const onPreviewTap = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!tapEnabled || (cam !== "ready" && cam !== "countdown")) return;
+    const v = videoRef.current;
+    if (!v || v.readyState < 2 || !v.videoWidth || !v.videoHeight) return;
+    const mirrored = facing === "user";
+    const videoBox = v.getBoundingClientRect();
+    const p = previewPointToVideo(videoBox, v.videoWidth, v.videoHeight, e.clientX, e.clientY, mirrored);
+    if (!p) return; // on a bar beside the picture
+    const w = TOPDOWN_WORK_WIDTH;
+    const h = Math.max(2, Math.round((w * v.videoHeight) / v.videoWidth));
+    const c = workCanvas.current ?? (workCanvas.current = document.createElement("canvas"));
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(v, 0, 0, w, h);
+    const { data } = ctx.getImageData(0, 0, w, h);
+    const result = learnFootSeed(data, w, h, { x: p.x * w, y: p.y * h });
+    const box = e.currentTarget.getBoundingClientRect();
+    const picture = containedRect(videoBox, v.videoWidth, v.videoHeight);
+    if ("error" in result) {
+      setTapError(result.error);
+    } else {
+      setTapError(null);
+      setSeed({ ...result.seed, from: "preview" });
+    }
+    window.clearTimeout(flashTimer.current);
+    setFlash({
+      x: e.clientX - box.left,
+      y: e.clientY - box.top,
+      region: "error" in result ? null : { mask: result.region, w: result.width, h: result.height },
+      picture: { left: picture.left - box.left, top: picture.top - box.top, width: picture.width, height: picture.height },
+      mirrored,
+    });
+    flashTimer.current = window.setTimeout(() => setFlash(null), FLASH_MS);
+  };
+
   if (mode === "camera") {
     const busy = cam === "starting";
     const sensorNote =
@@ -313,7 +419,10 @@ export function Capture({
           {cam === "recording" ? "Recording…" : cam === "countdown" ? "Get into position" : "Set up your shot"}
         </h1>
 
-        <div className="relative overflow-hidden rounded-3xl border border-line bg-black">
+        <div
+          className={`relative overflow-hidden rounded-3xl border border-line bg-black ${tapEnabled && (cam === "ready" || cam === "countdown") ? "cursor-crosshair" : ""}`}
+          onPointerDown={onPreviewTap}
+        >
           <video
             ref={videoRef}
             playsInline
@@ -359,7 +468,61 @@ export function Capture({
               </span>
             </div>
           )}
+          {flash?.region && (
+            <canvas
+              ref={flashCanvas}
+              aria-hidden
+              className="pointer-events-none absolute"
+              style={{
+                left: flash.picture.left,
+                top: flash.picture.top,
+                width: flash.picture.width,
+                height: flash.picture.height,
+                transform: flash.mirrored ? "scaleX(-1)" : undefined,
+              }}
+            />
+          )}
+          {flash && (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute size-9 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_2px_rgba(0,0,0,0.55)]"
+              style={{ left: flash.x, top: flash.y }}
+            />
+          )}
         </div>
+
+        {tapEnabled && (cam === "ready" || cam === "countdown") && (
+          <div className="flex flex-col gap-2 text-sm" aria-live="polite">
+            {seed ? (
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-ok/40 bg-ok/10 px-3 py-2 text-ok">
+                <span>Foot learned: Feet visible now looks for that colour.</span>
+                <Button
+                  variant="ghost"
+                  className="min-h-9 shrink-0 px-3 py-1 text-xs"
+                  onClick={() => {
+                    setSeed(null);
+                    setTapError(null);
+                  }}
+                >
+                  Forget it
+                </Button>
+              </div>
+            ) : (
+              cam === "ready" &&
+              live.checks.feet !== "both" && (
+                <p className="text-muted">
+                  Can&apos;t see your feet, or wearing socks? <strong className="text-ink">Tap the gap between your big toe and the next toe</strong> on the
+                  picture.
+                </p>
+              )
+            )}
+            {tapError && (
+              <p role="alert" className="text-danger">
+                {tapError}
+              </p>
+            )}
+          </div>
+        )}
 
         <p className="text-sm text-muted" aria-live="polite">
           {cam === "ready" && copy.recordHint}
